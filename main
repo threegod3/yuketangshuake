@@ -1,0 +1,396 @@
+# -*- coding: utf-8 -*-
+import random
+import time
+import requests
+import json
+
+# ===== 需要手动收集的4个核心数据 =====
+#心跳包名为heartbeat/
+csrftoken = ""  # 从Cookie获取
+sessionid = ""  # 从Cookie获取
+university_id = ""  # 从Cookie获取
+user_id = ""  # 从心跳包获取！
+
+# ===== 【课程配置】每个课程都需要填 =====
+#对应每一个课都是一个结构体，可以刷这个课程里所有的视频
+courses = {
+    "classroom_id": {  # classroom_id 必填，这个是一串数字，从课程URL获取或在心跳包中获取
+        "name": "",  # 课程名称，这个不重要
+        "skuid": "",  # 必填，从该课程的心跳包获取！
+        "course_id": ""  # 必填，从该课程的心跳包获取！
+    },
+    "classroom_id": {
+        "name": "",
+        "skuid": "",
+        "course_id": ""
+    }
+    # 有多个课程就继续添加...
+    # 复制这个结构体模板即可，并改好里面的数据
+}
+
+# ===== 【速度设置】想调快调慢就改这两个值 =====
+#目前大约是5-8倍速，但太快可能导致单次时间跳跃太大超过视频长度
+INCREMENT = (15, 20)  # 每次增加15-20秒（调大更快）
+DELAY = (2, 4)  # 每次等待2-4秒（调小更快）
+
+# ===== 以下代码不用动 =====
+#但如果你是使用的不是长江雨课堂，下面的url_root改成你使用的雨课堂，但目前只在长江雨课堂检测过
+url_root = "https://changjiang.yuketang.cn/"
+
+headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Cookie': f'csrftoken={csrftoken}; sessionid={sessionid}; university_id={university_id}; platform_id=3',
+    'x-csrftoken': csrftoken,
+    'university-id': university_id,
+    'xtbz': 'ykt',
+    'Content-Type': 'application/json',
+}
+
+
+def get_course_videos(classroom_id):
+    """获取课程的所有视频"""
+    print(f"\n正在获取视频列表...")
+
+    url = f"{url_root}mooc-api/v1/lms/learn/course/chapter/"
+    params = {
+        'cid': classroom_id,
+        'term': 'latest',
+        'uv_id': university_id
+    }
+
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        if response.status_code != 200:
+            print(f"❌ 获取失败: {response.status_code}")
+            return []
+
+        data = response.json()
+        videos = []
+
+        if 'data' in data:
+            course_data = data['data']
+
+            for chapter in course_data.get('course_chapter', []):
+                chapter_name = chapter.get('name', '未知章节')
+
+                for section in chapter.get('section_leaf_list', []):
+                    # 检查当前层级是否是视频
+                    if section.get('leaf_type') == 0:
+                        videos.append({
+                            'id': str(section['id']),
+                            'name': section['name'],
+                            'chapter': chapter_name,
+                        })
+
+                    # 检查子章节
+                    for leaf in section.get('leaf_list', []):
+                        if leaf.get('leaf_type') == 0:
+                            videos.append({
+                                'id': str(leaf['id']),
+                                'name': leaf['name'],
+                                'chapter': chapter_name,
+                            })
+
+        print(f"✅ 找到 {len(videos)} 个视频")
+        return videos
+
+    except Exception as e:
+        print(f"❌ 获取视频列表失败: {e}")
+        return []
+
+
+def get_video_progress(video_id, classroom_id, course_id):
+    """获取视频观看进度（包含视频时长）"""
+    url = f"{url_root}video-log/get_video_watch_progress/"
+    params = {
+        'cid': course_id,
+        'user_id': user_id,
+        'classroom_id': classroom_id,
+        'video_type': 'video',
+        'vtype': 'rate',
+        'video_id': video_id,
+        'snapshot': '1',
+        'term': 'latest',
+        'uv_id': university_id
+    }
+
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        if response.status_code == 200:
+            return response.json()
+    except:
+        pass
+    return None
+
+
+def generate_cc():
+    """生成32位随机十六进制cc字段"""
+    return ''.join(random.choices('0123456789ABCDEF', k=32))
+
+
+def send_heartbeat(video_id, current_pos, duration, course_id, classroom_id, skuid, is_first=False):
+    """发送心跳包"""
+    url = f"{url_root}video-log/heartbeat/"
+
+    base_time = int(round(time.time() * 1000))
+    heart_data = []
+
+    # 生成随机字段
+    random_suffix = ''.join(random.sample('zyxwvutsrqponmlkjihgfedcba1234567890', 5))
+    pg = f"{video_id}_{random_suffix}"
+    cc = generate_cc()
+
+    sq = 1
+
+    # 如果是第一次发送，添加初始化事件
+    if is_first or current_pos < 10:
+        init_events = [
+            ("loadstart", 0, 0, 0, 0, -5000),
+            ("seeking", 0, 0, 0, 0, -4000),
+            ("loadeddata", 0, 0, 0, 0, -3000),
+            ("play", 0, 0, 0, 1, -2000),
+            ("playing", 0, 0, 0, 1, -1000),
+        ]
+
+        for et, cp, fp, tp, sp, time_offset in init_events:
+            heart_data.append({
+                "i": 5,
+                "et": et,
+                "p": "web",
+                "n": "ali-cdn.xuetangx.com",
+                "lob": "ykt",
+                "cp": cp,
+                "fp": fp,
+                "tp": tp,
+                "sp": sp,
+                "ts": str(base_time + time_offset),
+                "u": int(user_id),
+                "uip": "",
+                "c": str(course_id),
+                "v": int(video_id),
+                "skuid": int(skuid),
+                "classroomid": str(classroom_id),
+                "cc": cc,
+                "d": duration,
+                "pg": pg,
+                "sq": sq,
+                "t": "video",
+                "cards_id": 0,
+                "slide": 0,
+                "v_url": ""
+            })
+            sq += 1
+
+    # 主要心跳包
+    heart_data.append({
+        "i": 5,
+        "et": "heartbeat",
+        "p": "web",
+        "n": "ali-cdn.xuetangx.com",
+        "lob": "ykt",
+        "cp": current_pos,
+        "fp": 0,
+        "tp": current_pos,
+        "sp": 1,
+        "ts": str(base_time),
+        "u": int(user_id),
+        "uip": "",
+        "c": str(course_id),
+        "v": int(video_id),
+        "skuid": int(skuid),
+        "classroomid": str(classroom_id),
+        "cc": cc,
+        "d": duration,
+        "pg": pg,
+        "sq": sq,
+        "t": "video",
+        "cards_id": 0,
+        "slide": 0,
+        "v_url": ""
+    })
+
+    data = {"heart_data": heart_data}
+
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        return response.status_code == 200
+    except:
+        return False
+
+
+def process_video(video, classroom_id, course_id, skuid):
+    """处理单个视频"""
+    video_id = video['id']
+    video_name = video['name']
+    chapter = video.get('chapter', '')
+
+    print(f"\n{'=' * 60}")
+    print(f"📹 视频: {video_name}")
+    print(f"   章节: {chapter}")
+    print(f"   ID: {video_id}")
+
+    # 获取视频进度（包含时长）
+    progress = get_video_progress(video_id, classroom_id, course_id)
+
+    # 从进度中提取时长和当前进度
+    duration = 1000  # 默认值
+    watch_length = 0
+    rate = 0
+
+    if progress and progress.get('data') and video_id in progress['data']:
+        video_data = progress['data'][video_id]
+
+        # 从进度接口获取视频时长（最准确！）
+        if video_data.get('video_length'):
+            duration = video_data['video_length']
+            print(f"✅ 获取到真实时长: {duration:.1f}秒 ({duration / 60:.1f}分钟)")
+        else:
+            print(f"⏱️ 使用默认时长: {duration:.1f}秒")
+
+        # 检查是否已完成
+        if video_data.get('completed') == 1:
+            print(f"✅ 已经看完，跳过")
+            return
+
+        # 获取当前进度
+        watch_length = video_data.get('watch_length', 0)
+        rate = video_data.get('rate', 0)
+        print(f"📊 已看: {watch_length:.1f}秒 ({rate * 100:.1f}%)")
+
+        if rate >= 0.95:
+            print(f"✅ 进度已到95%，跳过")
+            return
+    else:
+        print(f"⏱️ 使用默认时长: {duration:.1f}秒")
+        print(f"📊 未开始")
+
+    current_pos = watch_length
+    target_pos = int(duration * 0.95)
+
+    # 如果已经达到目标，直接返回
+    if current_pos >= target_pos:
+        print(f"✅ 进度已足够，跳过")
+        return
+
+    # 开始模拟观看
+    print(f"▶️ 开始观看，目标位置: {target_pos:.1f}秒")
+    time.sleep(2)
+
+    is_first = True
+    heartbeat_count = 0
+
+    while current_pos < target_pos:
+        heartbeat_count += 1
+        increment = random.randint(INCREMENT[0], INCREMENT[1])
+        current_pos = min(current_pos + increment, target_pos)
+
+        progress_percent = (current_pos / duration) * 100
+        print(f"\n📊 第{heartbeat_count}次心跳: {current_pos:.1f}/{duration:.1f}秒 ({progress_percent:.1f}%)")
+
+        if send_heartbeat(video_id, current_pos, duration, course_id, classroom_id, skuid, is_first):
+            is_first = False
+            delay = random.uniform(DELAY[0], DELAY[1])
+            print(f"⏱️ 等待 {delay:.1f} 秒...")
+            time.sleep(delay)
+        else:
+            print(f"⚠️ 发送失败，等待5秒...")
+            time.sleep(5)
+
+    print(f"\n✅ 视频完成！共发送 {heartbeat_count} 次心跳")
+
+
+def main():
+    print("=" * 60)
+    print("🎓 雨课堂自动刷课脚本")
+    print("=" * 60)
+    print(f"用户ID: {user_id}")
+
+    # 1. 显示所有可用的课程
+    print(f"\n📚 已配置 {len(courses)} 门课程:")
+    course_list = list(courses.items())
+    for i, (cid, info) in enumerate(course_list, 1):
+        print(f"{i:2d}. {info['name']} (课堂ID: {cid})")
+
+    # 2. 选择课程
+    while True:
+        try:
+            choice = input(f"\n请选择课程 (1-{len(course_list)}，输入0退出): ").strip()
+            if choice == '0':
+                return
+            idx = int(choice) - 1
+            if 0 <= idx < len(course_list):
+                classroom_id, course_info = course_list[idx]
+                break
+            else:
+                print(f"❌ 请输入 1-{len(course_list)} 之间的数字")
+        except:
+            print("❌ 输入错误")
+
+    print(f"\n✅ 已选择: {course_info['name']}")
+    print(f"   skuid: {course_info['skuid']}")
+    print(f"   course_id: {course_info['course_id']}")
+
+    # 3. 获取视频列表（不需要传入course_id）
+    videos = get_course_videos(classroom_id)
+    if not videos:
+        print("❌ 该课程没有视频")
+        return
+
+    # 4. 显示视频列表
+    print(f"\n📹 找到 {len(videos)} 个视频:")
+    for i, video in enumerate(videos, 1):
+        print(f"{i:2d}. [{video['chapter']}] {video['name']}")
+
+    # 5. 选择视频
+    print(f"\n选项:")
+    print(f"  - 输入数字 (如: 5) 刷单个视频")
+    print(f"  - 输入范围 (如: 2-8) 刷第2到第8个")
+    print(f"  - 输入 all 刷所有视频")
+
+    while True:
+        choice = input("\n请选择: ").strip().lower()
+
+        if choice == 'all':
+            selected_videos = videos
+            break
+        elif '-' in choice:
+            try:
+                start, end = map(int, choice.split('-'))
+                start = max(1, start)
+                end = min(len(videos), end)
+                selected_videos = videos[start - 1:end]
+                break
+            except:
+                print("❌ 格式错误，正确示例: 2-8")
+        else:
+            try:
+                idx = int(choice) - 1
+                if 0 <= idx < len(videos):
+                    selected_videos = [videos[idx]]
+                    break
+                else:
+                    print(f"❌ 请输入 1-{len(videos)} 之间的数字")
+            except:
+                print("❌ 输入错误")
+
+    # 6. 开始刷视频
+    print(f"\n📋 将处理 {len(selected_videos)} 个视频")
+    input("按回车键开始...")
+
+    start_time = time.time()
+    for i, video in enumerate(selected_videos, 1):
+        print(f"\n[{i}/{len(selected_videos)}]")
+        process_video(video, classroom_id, course_info['course_id'], course_info['skuid'])
+
+        if i < len(selected_videos):
+            pause = random.randint(5, 10)
+            print(f"\n⏸️ 等待 {pause} 秒后继续...")
+            time.sleep(pause)
+
+    total_time = (time.time() - start_time) / 60
+    print(f"\n{'=' * 60}")
+    print(f"✨ 全部完成！总耗时: {total_time:.1f} 分钟")
+
+
+if __name__ == "__main__":
+    main()
