@@ -1,10 +1,10 @@
 # 雨课堂高速刷课
 
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/threegod3/yueketangshuake
-)](https://github.com/threegod3/yueketangshuake/releases)
-[![GitHub stars](https://img.shields.io/github/stars/threegod3/yueketangshuake
-)](https://github.com/threegod3/yueketangshuake/stargazers)
-[![GitHub license](https://img.shields.io/github/license/threegod3/yueketangshuake)](https://github.com/threegod3/yueketangshuake/blob/main/LICENSE)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/threegod3/yuketangshuake
+)](https://github.com/threegod3/yuketangshuake/releases)
+[![GitHub stars](https://img.shields.io/github/stars/threegod3/yuketangshuake
+)](https://github.com/threegod3/yuketangshuake/stargazers)
+[![GitHub license](https://img.shields.io/github/license/threegod3/yuketangshuake)](https://github.com/threegod3/yuketangshuake/blob/main/LICENSE)
 
 ## 📖 项目简介
 
@@ -134,7 +134,7 @@ https://xxx.yuketang.cn/
 
 ## 📊 Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=threegod3/yueketangshuake&type=Date)](https://star-history.com/#threegod3/yueketangshuake&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=threegod3/yuketangshuake&type=Date)](https://star-history.com/#threegod3/yueketangshuake&Date)
 
 ## 📜 License
 
